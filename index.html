@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#111827">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>简约音乐</title>
+<link rel="manifest" href="manifest.json">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+<style>
+  :root { --accent:#6366f1; }
+  html,body { height:100%; overscroll-behavior:none; }
+  body { background:#0f172a; color:#e5e7eb; -webkit-tap-highlight-color:transparent; touch-action:manipulation; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+
+  /* 通用过渡 */
+  button, .fade-el { transition:all .25s ease; }
+  button:active { transform:scale(.9); }
+
+  /* 封面旋转 */
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #coverDisc { animation:spin 22s linear infinite; animation-play-state:paused; }
+  #coverDisc.playing { animation-play-state:running; }
+
+  /* 歌词 */
+  #lyricBox { -webkit-mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent);
+              mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 78%,transparent); }
+  #lyricInner { will-change:transform; }
+  .lyric-line { padding:.45rem 1rem; text-align:center; font-size:.92rem; line-height:1.6; color:#64748b;
+                transform:scale(1); transform-origin:center;
+                transition:color .35s ease, transform .35s ease, font-weight .35s ease;
+                cursor:pointer; user-select:none; }
+  .lyric-line.active { color:#fff; transform:scale(1.12); font-weight:600; text-shadow:0 0 12px rgba(99,102,241,.55); }
+
+  /* 进度条 / 音量条 */
+  .slider { -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:9999px;
+            background:linear-gradient(to right,var(--accent) var(--val,0%),#334155 var(--val,0%)); outline:none; }
+  .slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+            background:#fff; box-shadow:0 0 6px rgba(0,0,0,.6); cursor:pointer; }
+  .slider::-moz-range-thumb { width:14px; height:14px; border:none; border-radius:50%; background:#fff; }
+  /* 加大进度条触控热区 */
+  #progressWrap { padding:12px 0; cursor:pointer; touch-action:none; }
+
+  /* 播放列表抽屉 */
+  #drawer { transform:translateY(100%); transition:transform .35s cubic-bezier(.32,.72,.28,1); }
+  #drawer.open { transform:translateY(0); }
+  #mask { opacity:0; pointer-events:none; transition:opacity .3s ease; }
+  #mask.show { opacity:1; pointer-events:auto; }
+
+  .list-item { transition:background .2s ease; }
+  .list-item:active { background:rgba(99,102,241,.15); }
+
+  /* toast */
+  #toast { transition:opacity .3s ease, transform .3s ease; opacity:0; transform:translate(-50%,8px); }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body class="flex justify-center">
+
+<div id="app" class="w-full max-w-md h-full flex flex-col px-5 pt-4 pb-3 relative overflow-hidden">
+
+  <!-- 顶栏 -->
+  <header class="flex items-center justify-between shrink-0">
+    <h1 class="text-lg font-bold tracking-wide text-slate-100">简约音乐</h1>
+    <div class="flex gap-2">
+      <button id="btnImport" aria-label="导入歌曲"
+        class="w-11 h-11 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center active:bg-indigo-500/40">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button id="btnList" aria-label="播放列表"
+        class="w-11 h-11 rounded-full bg-slate-700/40 text-slate-300 flex items-center justify-center active:bg-slate-700/70">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 封面 -->
+  <div class="shrink-0 flex justify-center mt-4">
+    <div id="coverDisc" class="w-44 h-44 rounded-full ring-4 ring-slate-700/60 shadow-2xl shadow-black/50 overflow-hidden relative bg-slate-800">
+      <img id="coverImg" alt="封面" class="w-full h-full object-cover" draggable="false">
+      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div class="w-9 h-9 rounded-full bg-slate-900/85 ring-2 ring-slate-600/70"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌曲信息 -->
+  <div class="shrink-0 text-center mt-4 mb-1 px-2">
+    <div id="songTitle" class="text-base font-semibold truncate">未在播放</div>
+    <div id="songArtist" class="text-sm text-slate-400 truncate mt-0.5">点击右上角 + 导入本地音乐</div>
+  </div>
+
+  <!-- 歌词区 -->
+  <div id="lyricBox" class="flex-1 min-h-0 relative overflow-hidden my-2">
+    <div id="lyricInner" class="absolute left-0 right-0 top-0"></div>
+    <div id="lyricEmpty" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm px-8 text-center hidden"></div>
+  </div>
+
+  <!-- 进度 -->
+  <div class="shrink-0">
+    <div id="progressWrap">
+      <div class="h-1 rounded-full bg-slate-700 relative">
+        <div id="progressFill" class="absolute left-0 top-0 h-full rounded-full bg-indigo-500" style="width:0%"></div>
+        <div id="progressDot" class="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-white shadow" style="left:0%"></div>
+      </div>
+    </div>
+    <div class="flex justify-between text-xs text-slate-400 tabular-nums">
+      <span id="curTime">0:00</span><span id="durTime">0:00</span>
+    </div>
+  </div>
+
+  <!-- 音量 -->
+  <div class="shrink-0 flex items-center gap-3 mt-1">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="text-slate-400 shrink-0"><path d="M3 10v4h4l5 5V5L7 10H3z"/></svg>
+    <input id="volume" type="range" class="slider" min="0" max="1" step="0.01" value="1">
+  </div>
+
+  <!-- 控制区 -->
+  <div class="shrink-0 flex items-center justify-between mt-2 mb-1 px-2">
+    <button id="btnMode" aria-label="循环模式" class="w-11 h-11 flex items-center justify-center text-slate-300"></button>
+    <button id="btnPrev" aria-label="上一首" class="w-12 h-12 flex items-center justify-center text-slate-200">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9.5 12z"/></svg>
+    </button>
+    <button id="btnPlay" aria-label="播放/暂停"
+      class="w-16 h-16 rounded-full bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-500/30 active:bg-indigo-600"></button>
+    <button id="btnNext" aria-label="下一首" class="w-12 h-12 flex items-center justify-center text-slate-200">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/></svg>
+    </button>
+    <div class="w-11 h-11"></div>
+  </div>
+</div>
+
+<!-- 播放列表抽屉 -->
+<div id="mask" class="fixed inset-0 bg-black/60 z-20"></div>
+<div id="drawer" class="fixed bottom-0 left-0 right-0 z-30 max-w-md mx-auto bg-slate-900 rounded-t-3xl shadow-2xl flex flex-col" style="height:62%">
+  <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
+    <span class="font-semibold">播放列表 <span id="songCount" class="text-sm text-slate-400">(0)</span></span>
+    <button id="btnCloseDrawer" class="w-10 h-10 flex items-center justify-center text-slate-400">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div id="playlistEl" class="flex-1 overflow-y-auto overscroll-contain"></div>
+</div>
+
+<!-- toast -->
+<div id="toast" class="fixed bottom-24 left-1/2 z-40 bg-slate-800 text-slate-100 text-sm px-4 py-2 rounded-full shadow-lg pointer-events-none whitespace-nowrap"></div>
+
+<input id="fileInput" type="file" accept="audio/*,.mp3" multiple class="hidden">
+
+<script src="app.js"></script>
+</body>
+</html>
